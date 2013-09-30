@@ -146,7 +146,7 @@ void PWM_IRQ_HANDLER(void) {
 	{
 		if (edge == 0) {
 			pwmValidMicros = timerMicros;
-			runNewInput(pwmValue);
+			runNewInput(pwmValue); //PWM正确.输入
 		}
 	}
 	// otherwise if already in OW mode, pass control to OW

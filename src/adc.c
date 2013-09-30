@@ -42,7 +42,7 @@ float adcToAmps;    //ADC的电流测量值 转换成 实际的电流公式
 static int16_t adcAdvance;
 static int32_t adcblankingMicros;
 int32_t adcMaxPeriod;//ADC最大的周期
-static int32_t adcMinPeriod;//ADC最小的周期
+static int32_t adcMinPeriod;//ADC最小的换相时间(us)
 
 
 static int16_t histIndex;  //数组的索引值
@@ -62,7 +62,7 @@ static uint8_t adcStateA, adcStateB, adcStateC;//当前的状态
 volatile uint32_t detectedCrossing;
 volatile uint32_t crossingPeriod;
 volatile int32_t adcCrossingPeriod;
-static uint32_t nextCrossingDetect;  //ADC下一个检测时间点
+static uint32_t nextCrossingDetect;  //ADC换相时间(在中断中会计算出来,下一个换相的时间)
 
 //重新对ADC内部校准
 static void adcCalibrateADC(ADC_TypeDef *ADCx) 
@@ -335,14 +335,16 @@ void DMA1_Channel1_IRQHandler(void)
 
 		if ((avgA+avgB+avgC)/histSize > (ADC_MIN_COMP*3) && state != ESC_STATE_DISARMED && state != ESC_STATE_NOCOMM) 
 		{
-			register int32_t periodMicros;
+			register int32_t periodMicros;//当前时间 - 上次换相时间 = 两次时间间隔
 
+			//                                                    当前的时间 - 上次换相的时间
 			periodMicros = (currentMicros >= detectedCrossing) ? (currentMicros - detectedCrossing) : (TIMER_MASK - detectedCrossing + currentMicros);//得到两次ad的间隔时间
 
 			if (periodMicros > nextCrossingDetect) //超过了时间点,开始换向
 			{
 				register uint8_t nextStep = 0;
 
+				//这里判断当前读取到的3相电压值
 				if (!adcStateA && avgA >= (avgB+avgC)>>1)
 				{
 					//当前在STEP5 切换到STEP6
@@ -381,7 +383,8 @@ void DMA1_Channel1_IRQHandler(void)
 					nextStep = 5;
 				}
 
-				if (nextStep && periodMicros > adcMinPeriod) //超过了最小检测周期
+				//进行无刷电机的换向
+				if (nextStep && periodMicros > adcMinPeriod) //超过了最小换相时间(us, 默认50us)
 				{
 					if (periodMicros > adcMaxPeriod)
 						periodMicros = adcMaxPeriod;
@@ -400,16 +403,21 @@ void DMA1_Channel1_IRQHandler(void)
 					fetCommutationMicros = 0; //电机换向的时间清零
 					timerSetAlarm1(crossingPeriod/2 - (ADC_DETECTION_TIME*(histSize+2))/2 - ADC_COMMUTATION_ADVANCE, fetCommutate, crossingPeriod);
 
+
+					// 记录下这次换相的时间
 					// record crossing time
 					detectedCrossing = currentMicros;
 
 					// resize history based on period
 					adcEvaluateHistSize();
 
+
+					// 计算下一个换相时间
 					// calculate next crossing detection time
 					//		nextCrossingDetect = crossingPeriod*2/3;
 					nextCrossingDetect = crossingPeriod*3/4;
 					//		nextCrossingDetect = crossingPeriod*6/8;
+
 
 					// record highest current draw for this run
 					// 记录下最大的消耗电流
@@ -471,7 +479,7 @@ void adcSetConstants(void)
     adcToAmps = ((ADC_TO_VOLTAGE / ((1<<(ADC_AMPS_PRECISION))+1)) / (ADC_SHUNT_GAIN * shuntResistance / 1000.0f));
     adcAdvance = 100.0f / (advance * (50.0f / 30.0f));
     adcblankingMicros = blankingMicros * TIMER_MULT;
-    adcMinPeriod = minPeriod * TIMER_MULT;//adc的最小采样周期
+    adcMinPeriod = minPeriod * TIMER_MULT;//adc的最小采样周期(时间us)
     adcMaxPeriod = maxPeriod * TIMER_MULT;//adc的最大采样周期
 
 	//写回数组里面

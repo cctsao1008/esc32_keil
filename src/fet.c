@@ -82,7 +82,7 @@ volatile uint32_t fetGoodDetects;    //fet 正确的检测次数
 volatile uint32_t fetBadDetects;     //fet 总共错误的检测次数
 volatile uint32_t fetTotalBadDetects;//fet 总共错误的检测次数
 
-volatile uint32_t fetCommutationMicros;//电机换向的时间
+volatile uint32_t fetCommutationMicros;//电机换向的时间(在换向的时候获取到)
 int8_t fetBrakingEnabled;//=1 开启制动模式,允许制动,在参数表中设置
 int8_t fetBraking;       //=1 制动模式 
 static int16_t startSeqCnt;
@@ -92,6 +92,9 @@ static float fetServoMaxRate;
 
 static int16_t fetSine[FET_SERVO_RESOLUTION];
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 下面5个函数都在伺服模式下使用的
 static void fetCreateSine(void) {
 	float a;
 	int i;
@@ -104,8 +107,6 @@ static void fetCreateSine(void) {
 	}
 }
 
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //设置伺服模式下 计算出来的占空比
 static void _fetSetServoDuty(uint16_t duty[3]) {
     FET_H_TIMER->FET_A_H_CHANNEL = duty[0];
@@ -362,7 +363,7 @@ void fetBeep(uint16_t freq, uint16_t duration) {
 		timerDelay(8);
 		FET_A_H_OFF;
 
-		timerDelay(freq);
+		timerDelay(freq);//us级别延时
 
 		// reload the hardware watchdog
 		runFeedIWDG();
@@ -712,7 +713,9 @@ void motorStartSeqInit(void) {
     timerSetAlarm2(0, motorStartSeq, 0);
 }
 
-void fetStartCommutation(uint8_t startStep) {
+//电机启动
+void fetStartCommutation(uint8_t startStep) 
+{
     fetSetBraking(0);
 //  启动周期     = 启动的电压量     / 电池电压(12V) * PWM脉冲周期
 	fetStartDuty = p[START_VOLTAGE] / avgVolts * fetPeriod;
@@ -735,6 +738,7 @@ void fetStartCommutation(uint8_t startStep) {
     timerSetAlarm2(0, fetMissedCommutate, crossingPeriod);
 }
 
+// 电机在启动的时候执行
 // generates motor start sequence
 static void motorStartSeq(int period) {
 	int nextPeriod;
@@ -745,7 +749,7 @@ static void motorStartSeq(int period) {
 		// 这里启动的时候.没有做电机换向
 		// PWM ramp up
 		// 启动周期  =                          (这里是个斜坡) / 电池电压(12V) * 周期
-		// 启动的时候占空比慢慢增加
+		// 启动的时候占空比慢慢增加 ... 做一个斜坡
 		fetStartDuty = p[START_ALIGN_VOLTAGE] * ((float)startSeqCnt / p[START_ALIGN_TIME]) / avgVolts * fetPeriod;
 		fetDutyCycle = fetStartDuty;
 		_fetSetDutyCycle(fetDutyCycle);
@@ -762,6 +766,7 @@ static void motorStartSeq(int period) {
 		if (startSeqCnt == p[START_ALIGN_TIME])
 			period = p[START_STEPS_PERIOD];
 
+		// 电击换相
 		// Set next step
 		startSeqStp++;
 		if (startSeqStp > 6) 
