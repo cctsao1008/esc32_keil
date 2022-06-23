@@ -261,7 +261,7 @@ static void owReadComplete(void) {
 		}
 		else {
 			owLastCommand = 0x00;
-			if (owBuf[1] >= 0 && owBuf[1] < NUM_RUN_MODES) {
+			if (owBuf[1] < NUM_RUN_MODES) {
 				runMode = owBuf[1];
 
 				owState = OW_WRITE;
